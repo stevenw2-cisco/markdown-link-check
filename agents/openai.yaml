@@ -1,0 +1,4 @@
+interface:
+  display_name: "Markdown Link Check"
+  short_description: "Audit Markdown for unlinked Jira/GitHub refs and enforce reference-style links"
+  default_prompt: "Check staged Markdown files for unlinked references"
