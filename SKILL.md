@@ -91,9 +91,9 @@ See [QQ-12357] for details.
 1. Identify changed `.md` files, then drop the exclusions above:
    ```bash
    # commit flow
-   git diff --cached --name-only --diff-filter=ACM -- '*.md'
+   git diff --cached --name-only --diff-filter=ACMR -- '*.md'
    # PR flow
-   git diff --name-only --diff-filter=ACM <base>...HEAD -- '*.md'
+   git diff --name-only --diff-filter=ACMR <base>...HEAD -- '*.md'
    ```
    If none remain, exit silently.
 
