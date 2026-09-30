@@ -1,33 +1,50 @@
 ---
 name: markdown-link-check
-description: Audit Markdown files for unlinked references (Jira tickets, GitHub repos/PRs/commits, file paths) and enforce reference-style link definitions at the bottom. Invoke when committing Markdown files.
+description: Audit changed Markdown files for unlinked references (Jira tickets with known project keys, GitHub repos/PRs/commits, external file paths) and inconsistent link style, then offer fixes that follow the file's existing style. Use when a commit or PR includes .md files (git-commit, pr-create) or the user asks to check Markdown links. Not for CHANGELOG.md (owned by cloudsec-discovery-changelog-release) or for checking whether URLs resolve.
 ---
 
 # Markdown Link Check
 
-Audit staged Markdown files for linkable items that are missing hyperlinks,
-and verify that existing links use reference style with definitions at the
-bottom of the document.
+Audit changed Markdown files for linkable items that are missing hyperlinks,
+and check that links follow the file's established link style.
 
 ## When to invoke
 
-Run this skill whenever a commit includes `.md` files. It is a pre-commit
-quality gate, not a blocker — report findings and ask the user whether to fix
-before committing.
+- `git-commit`: the commit includes `.md` files.
+- `pr-create`: the PR changes `.md` files (report findings only; do not edit).
+- The user asks to check Markdown links.
+
+It is a quality gate, not a blocker. Report findings and ask the user whether
+to fix them.
+
+## Exclusions
+
+- Skip `CHANGELOG.md` (any directory). Its format, including link style, is
+  owned by `cloudsec-discovery-changelog-release` in the repos that use it,
+  and by the repository's changelog convention elsewhere.
+- Skip generated or vendored Markdown (for example under `node_modules/`,
+  `vendor/`, `.terraform/`).
 
 ## Detection: what counts as "should be linked"
 
-Scan each Markdown file for the following patterns. Each is linkable and
-should use a reference-style link `[text][ref]` or `[text]` (auto-ref).
+Scan each Markdown file for the following patterns. Ignore matches inside
+fenced code blocks, inline code, and existing link syntax (`[...]`,
+`[...][...]`, `[...](...)`, `<https://...>`).
 
 ### Jira tickets
 
-Pattern: `[A-Z]{2,10}-\d+` that appears as plain text (not already inside
-`[...]` or `[...][...]` or `[...](...)` syntax).
+Pattern — known project keys only:
 
-Common prefixes in this environment: `QQ`, `DISC`, `PAAS`, `NET`, `CHIM`.
+```text
+\b(DISC|QQ|PAAS|NET|CHIM)-[0-9]+\b
+```
 
 Link target: `https://cisco-sbg.atlassian.net/browse/<TICKET>`
+
+Other `[A-Z]{2,10}-\d+` tokens are often not tickets (`UTF-8`, `SHA-256`,
+`ISO-8601`, `CVE-2024-1234`, `RFC-001`). Do not link them automatically. List
+them separately as **Possible tickets — confirm** and ask the user which, if
+any, are Jira keys.
 
 ### GitHub references
 
@@ -43,57 +60,75 @@ When a prose sentence names a file or directory that lives in an external
 repo (e.g. `base-host/dc_config`, `dc_config/DB_FOLLOWUPS.md`), link to the
 canonical GitHub tree or blob URL if it can be inferred from context.
 
-## Enforcement: reference-style links
+## Link style: follow the existing convention
 
-All links in the audited file **must** use reference style:
+Match the style the file (or, for new files, the repository) already uses:
+
+1. If the repo documents a Markdown link style (`CONTRIBUTING.md`, a style
+   guide, a markdownlint config such as MD054), follow it.
+2. Otherwise, if the file consistently uses one style, keep it. That is either
+   reference style (`[text][ref]` with definitions at the bottom) or inline
+   (`[text](url)`). Add new links in that style and do not convert existing
+   ones.
+3. For a new file, use the dominant style of other Markdown files in the same
+   directory or repository.
+4. Only when a file mixes styles, or no convention exists, suggest reference
+   style (format below). Report mixed files as **Inconsistent link style** and
+   let the user choose; never convert a consistent file.
+
+Reference style example:
 
 ```markdown
-<!-- inline text -->
 See [QQ-12357] for details.
 
-<!-- at the bottom of the file, after a --- separator -->
+---
+
 [QQ-12357]: https://cisco-sbg.atlassian.net/browse/QQ-12357
 ```
 
-Inline links (`[text](url)`) should be converted to reference style.
-
 ## Workflow
 
-1. Identify staged `.md` files:
+1. Identify changed `.md` files, then drop the exclusions above:
    ```bash
-   git diff --cached --name-only --diff-filter=ACM | grep '\.md$'
+   # commit flow
+   git diff --cached --name-only --diff-filter=ACM -- '*.md'
+   # PR flow
+   git diff --name-only --diff-filter=ACM <base>...HEAD -- '*.md'
    ```
-   If none, exit silently.
+   If none remain, exit silently.
 
-2. For each file, read it and run the detection pass.
+2. For each file, determine its link style (section above) and run the
+   detection pass.
 
-3. Build two lists:
-   - **Missing links** — linkable items in plain text with no surrounding link syntax.
-   - **Inline links** — `[text](url)` forms that should be reference style.
+3. Build these lists:
+   - **Missing links**: linkable items in plain text with no link syntax.
+   - **Possible tickets — confirm**: unknown-prefix `XXX-123` tokens.
+   - **Inconsistent link style**: only for files that mix styles.
 
-4. If both lists are empty, report "All linkable references are linked ✓" and exit.
+4. If every list is empty, report "All linkable references are linked" and exit.
 
 5. Otherwise, present the findings grouped by file:
-   ```
-   runbooks/foo/README.md
+   ```text
+   runbooks/foo/README.md (style: reference)
      Missing links:
        - QQ-12357 (line 4)  → https://cisco-sbg.atlassian.net/browse/QQ-12357
        - NET-11137 (line 59) → https://cisco-sbg.atlassian.net/browse/NET-11137
-     Inline links to convert:
-       - [cloudsec_quadra_base-host#2690](https://github.com/...) (line 3)
+     Possible tickets — confirm:
+       - OPS-42 (line 12)
    ```
 
-6. Ask: **Fix these now before committing? (yes / no / skip)**
-   - **yes** — apply all fixes: convert inline links to reference style, add
-     missing reference-style links, append definition block after `---`
-     separator at end of file. Then re-run detection to confirm clean.
-   - **no / skip** — proceed to commit without fixing. Note findings in commit
-     message or as a follow-up comment.
+6. In `pr-create` validation, stop here and return the findings; do not edit.
+   Otherwise ask: **Fix these now? (yes / no / skip)**
+   - **yes**: add missing links in the file's style, and apply only the
+     style normalisation the user chose. For reference style, add definitions
+     in the block format below. Re-run detection to confirm clean.
+   - **no / skip**: proceed without fixing. List the unresolved findings in
+     your final response to the user. Do not put them in the commit message.
 
 ## Reference definition block format
 
-Append definitions at the end of the file after a `---` rule, sorted
-alphabetically by ref name:
+For reference-style files, append definitions at the end of the file after a
+`---` rule, sorted alphabetically by ref name:
 
 ```markdown
 ---
@@ -104,16 +139,18 @@ alphabetically by ref name:
 ```
 
 If a `---` already exists at the end, append definitions after it. Do not
-add a second separator.
+add a second separator. If the file already keeps its definitions elsewhere,
+add new ones there.
 
 ## Guardrails
 
 - Never modify files without the user confirming "yes".
-- Do not link every occurrence of a ticket — link on first mention per section,
-  or wherever the prose benefits most from clickability. Do not spam `[QQ-12357]`
-  on every line.
-- Do not invent URLs. If the target cannot be determined from context, flag it
-  as "URL unknown — please provide" rather than guessing.
+- Never convert a file whose link style is already consistent.
+- Do not link every occurrence of a ticket. Link the first mention per
+  section, or wherever the prose benefits most from clickability. Do not
+  repeat `[QQ-12357]` on every line.
+- Do not invent URLs or Jira keys. If the target cannot be determined from
+  context, flag it as "URL unknown — please provide" rather than guessing.
 - Do not reformat surrounding Markdown beyond the link changes.
-- This skill is advisory for non-cisco repos — patterns and Jira base URL may
-  differ. Adapt accordingly or ask the user.
+- This skill is advisory for non-cisco repos. Patterns and the Jira base URL
+  may differ, so adapt or ask the user.

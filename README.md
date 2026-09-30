@@ -1,9 +1,10 @@
 # Markdown Link Check Skill
 
-Audits staged Markdown files for unlinked Jira tickets, GitHub PR/issue/commit
-references, and external file paths. Enforces reference-style link definitions
-at the bottom of the document. Invoked automatically by the `git-commit` skill
-when `.md` files are staged.
+Audits changed Markdown files for unlinked Jira tickets (known project keys
+only), GitHub PR/issue/commit references, and external file paths. Follows each
+file's or repository's existing link style instead of forcing one, and skips
+`CHANGELOG.md`. Invoked by `git-commit` when `.md` files are staged and by
+`pr-create` (report only) when a PR changes Markdown.
 
 ## Purpose
 
@@ -13,12 +14,12 @@ agent instructions live in [`SKILL.md`](SKILL.md).
 ## Contents
 
 - `SKILL.md`: Skill metadata and agent workflow instructions.
-- `agents/openai.yaml`: OpenAI/Codex UI metadata for this skill.
+- `agents/openai.yaml`: agent UI metadata for this skill.
 
 ## Dependencies
 
 - MCP dependencies: None.
-- Related skills: `git-commit` (invokes this skill when Markdown files are staged).
+- Related skills: `git-commit` (invokes this skill when Markdown files are staged), `pr-create` (report-only), `cloudsec-discovery-changelog-release` (owns `CHANGELOG.md` format).
 
 ## Usage
 
